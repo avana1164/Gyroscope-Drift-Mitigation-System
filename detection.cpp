@@ -1,6 +1,17 @@
 #include <Wire.h>
 
 const uint8_t MPU_ADDR = 0x68;
+const unsigned long SAMPLE_INTERVAL_MS = 50;  // 20 samples per second
+
+enum ProbeStatus : uint8_t {
+  STATUS_UNKNOWN,
+  STATUS_OK,
+  STATUS_ADJUST,
+  STATUS_SENSOR_ERROR
+};
+
+unsigned long lastSampleMs = 0;
+ProbeStatus previousStatus = STATUS_UNKNOWN;
 
 // -----------------------------
 // DEMO THRESHOLDS
@@ -40,6 +51,7 @@ bool readMPU(
   int16_t &gz
 ) {
 
+
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(0x3B);
 
@@ -75,6 +87,7 @@ void setup() {
 
   Serial.begin(115200);
   Wire.begin();
+  Wire.setClock(400000);
 
   delay(1000);
 
@@ -111,6 +124,12 @@ void setup() {
 
 void loop() {
 
+  unsigned long now = millis();
+  if (now - lastSampleMs < SAMPLE_INTERVAL_MS) {
+    return;
+  }
+  lastSampleMs = now;
+
   int16_t rawAx, rawAy, rawAz;
   int16_t rawGx, rawGy, rawGz;
 
@@ -123,8 +142,10 @@ void loop() {
         rawGz
       )) {
 
-    Serial.println("ERROR: MPU-6050 not responding");
-    delay(500);
+    if (previousStatus != STATUS_SENSOR_ERROR) {
+      Serial.println("SENSOR ERROR");
+      previousStatus = STATUS_SENSOR_ERROR;
+    }
     return;
   }
 
@@ -167,9 +188,9 @@ void loop() {
 
   float accelerationChange =
     sqrt(
-      pow(ax - previousAx, 2) +
-      pow(ay - previousAy, 2) +
-      pow(az - previousAz, 2)
+      (ax - previousAx)*(ax - previousAx) +
+      (ay - previousAy)*(ay - previousAy) +
+      (az - previousAz)*(az - previousAz)
     );
 
   previousAx = ax;
@@ -190,89 +211,13 @@ void loop() {
 
 
   // ==================================
-  // OUTPUT
-  // ==================================
-
-  Serial.println("--------------------------------");
-
-  Serial.print("Acceleration: ");
-  Serial.print(ax, 2);
-  Serial.print("  ");
-  Serial.print(ay, 2);
-  Serial.print("  ");
-  Serial.println(az, 2);
-
-  Serial.print("Rotation:     ");
-  Serial.print(gx, 1);
-  Serial.print("  ");
-  Serial.print(gy, 1);
-  Serial.print("  ");
-  Serial.println(gz, 1);
-
-  Serial.print("Angle:        Roll ");
-  Serial.print(roll, 1);
-  Serial.print("°  Pitch ");
-  Serial.print(pitch, 1);
-  Serial.println("°");
-
-
-  // ==================================
-  // ACCELEROMETER CHECK
-  // ==================================
-
-  if (accelerationChange > MAX_ACCEL_CHANGE) {
-
-    Serial.println("⚠ WARNING: Large movement detected");
-
-  } else {
-
-    Serial.println("✓ Movement: Stable");
-  }
-
-
-  // ==================================
-  // GYROSCOPE CHECK
-  // ==================================
-
-  if (rotationSpeed > MAX_GYRO) {
-
-    Serial.println("⚠ WARNING: Probe rotated too quickly");
-
-  } else {
-
-    Serial.println("✓ Rotation: Controlled");
-  }
-
-
-  // ==================================
   // ANGLE CHECK
   // ==================================
-
   float rollError =
     abs(roll - TARGET_ROLL);
 
   float pitchError =
     abs(pitch - TARGET_PITCH);
-
-
-  if (rollError > ANGLE_TOLERANCE) {
-
-    Serial.println("⚠ WARNING: Roll angle outside target");
-
-  } else {
-
-    Serial.println("✓ Roll angle: OK");
-  }
-
-
-  if (pitchError > ANGLE_TOLERANCE) {
-
-    Serial.println("⚠ WARNING: Pitch angle outside target");
-
-  } else {
-
-    Serial.println("✓ Pitch angle: OK");
-  }
 
 
   // ==================================
@@ -290,19 +235,12 @@ void loop() {
     pitchError <= ANGLE_TOLERANCE;
 
 
-  if (movementOK && rotationOK && angleOK) {
+  ProbeStatus status = (movementOK && rotationOK && angleOK)
+                         ? STATUS_OK
+                         : STATUS_ADJUST;
 
-    Serial.println();
-    Serial.println("        ✓ PROBE POSITION OK");
-    Serial.println();
-
-  } else {
-
-    Serial.println();
-    Serial.println("        ⚠ ADJUST PROBE");
-    Serial.println();
+  if (status != previousStatus) {
+    Serial.println(status == STATUS_OK ? "OK" : "ADJUST PROBE");
+    previousStatus = status;
   }
-
-
-  delay(100);
 }
