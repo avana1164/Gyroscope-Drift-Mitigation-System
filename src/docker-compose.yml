@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  db:
+    image: mysql:latest
+    container_name: ultrasound-mysql
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: "ultrasound_tracker"
+    ports:
+      - "3306:3306"
