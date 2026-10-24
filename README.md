@@ -17,25 +17,31 @@ An end-to-end IoT data pipeline that captures high-frequency spatial metrics fro
 * **Programmatic Database Initialization:** Implements repeatable database configurations using Docker containerization bridges.
 
 ## 📦 Local Setup & Deployment
-1. Setup virtual environment:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate # macOS/Linux
-   .venv\Scripts\Activate.ps1 # Windows
-   ```
-2. Install dependencies:
-   ```bash
-   python -m pip install -r requirements.txt
-   ```
-3. Start the isolated MySQL database container infrastructure:
-   ```bash
-   docker-compose up -d
-   ```
-4. Auto-initialize the relational relational schema tables:
-   ```bash
-   python init_db.py
-   ```
-5. Run the live ingestion server pipeline:
-   ```bash
-   python app.py
-   ```
+
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Python 3 first. Run the commands below from the repository root. The virtual environment keeps the Python dependencies isolated; activate it again whenever you open a new terminal.
+
+### macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+docker compose -f src/docker-compose.yml up -d
+python -m src.init_db
+python -m src.app
+```
+
+### Windows (PowerShell)
+
+```powershell
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+docker compose -f src/docker-compose.yml up -d
+python -m src.init_db
+python -m src.app
+```
+
+If PowerShell blocks virtual environment activation, use Command Prompt instead and activate with `.venv\Scripts\activate.bat`.
+
+The Flask server listens on port `5001`. Keep the database container running while the app stores telemetry. To stop the database, run `docker compose -f src/docker-compose.yml down` from the repository root.
