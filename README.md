@@ -17,15 +17,25 @@ An end-to-end IoT data pipeline that captures high-frequency spatial metrics fro
 * **Programmatic Database Initialization:** Implements repeatable database configurations using Docker containerization bridges.
 
 ## 📦 Local Setup & Deployment
-1. Start the isolated MySQL database container infrastructure:
+1. Setup virtual environment:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate # macOS/Linux
+   .venv\Scripts\Activate.ps1 # Windows
+   ```
+2. Install dependencies:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+3. Start the isolated MySQL database container infrastructure:
    ```bash
    docker-compose up -d
    ```
-2. Auto-initialize the relational relational schema tables:
+4. Auto-initialize the relational relational schema tables:
    ```bash
    python init_db.py
    ```
-3. Run the live ingestion server pipeline:
+5. Run the live ingestion server pipeline:
    ```bash
    python app.py
    ```
