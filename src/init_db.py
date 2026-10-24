@@ -11,11 +11,11 @@ def initialize_database():
         cursor = conn.cursor()
         
         # 2. Automatically create the database if missing
-        cursor.execute("CREATE DATABASE IF NOT EXISTS ultrasound_tracker")
-        print("Database 'ultrasound_tracker' verified/created.")
+        cursor.execute("CREATE DATABASE IF NOT EXISTS gyroscope_data")
+        print("Database 'gyroscope_data' verified/created.")
         
         # 3. Switch context to the new database
-        cursor.execute("USE ultrasound_tracker")
+        cursor.execute("USE gyroscope_data")
         
         # 4. Define and create the structured tracking table
         create_table_query = """

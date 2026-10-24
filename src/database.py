@@ -6,7 +6,7 @@ def save_telemetry_batch(readings):
             host="localhost",
             user="root",
             password="",
-            database="ultrasound_tracker"
+            database="gyroscope_data"
         )
         cursor = conn.cursor()
         
