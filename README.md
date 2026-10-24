@@ -1,4 +1,4 @@
-# Real-Time Spatial Telemetry Pipeline for Automated Ultrasound Training
+# Real-Time Spatial Telemetry Pipeline for Gyroscope Drift Mitigation
 
 An end-to-end IoT data pipeline that captures high-frequency spatial metrics from a mobile device IMU to track technician proficiency, accelerate muscle memory training, and automate kinetic error assessment.
 
