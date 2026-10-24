@@ -22,25 +22,57 @@ Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and Py
 
 ### macOS
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-docker compose -f src/docker-compose.yml up -d
-python -m src.init_db
-python -m src.app
-```
+1. Create a virtual environment:
+   ```bash
+   python3 -m venv .venv
+   ```
+2. Activate it:
+   ```bash
+   source .venv/bin/activate
+   ```
+3. Install the Python dependencies:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+4. Start the MySQL database:
+   ```bash
+   docker compose -f src/docker-compose.yml up -d
+   ```
+5. Create the database schema:
+   ```bash
+   python -m src.init_db
+   ```
+6. Start the telemetry server:
+   ```bash
+   python -m src.app
+   ```
 
 ### Windows (PowerShell)
 
-```powershell
-py -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-docker compose -f src/docker-compose.yml up -d
-python -m src.init_db
-python -m src.app
-```
+1. Create a virtual environment:
+   ```powershell
+   py -m venv .venv
+   ```
+2. Activate it:
+   ```powershell
+   .venv\Scripts\Activate.ps1
+   ```
+3. Install the Python dependencies:
+   ```powershell
+   python -m pip install -r requirements.txt
+   ```
+4. Start the MySQL database:
+   ```powershell
+   docker compose -f src/docker-compose.yml up -d
+   ```
+5. Create the database schema:
+   ```powershell
+   python -m src.init_db
+   ```
+6. Start the telemetry server:
+   ```powershell
+   python -m src.app
+   ```
 
 If PowerShell blocks virtual environment activation, use Command Prompt instead and activate with `.venv\Scripts\activate.bat`.
 
