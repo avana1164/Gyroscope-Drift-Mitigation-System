@@ -2,9 +2,9 @@ version: '3.8'
 services:
   db:
     image: mysql:latest
-    container_name: ultrasound-mysql
+    container_name: gyroscope-mysql
     environment:
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
-      MYSQL_DATABASE: "ultrasound_tracker"
+      MYSQL_DATABASE: "gyroscope_data"
     ports:
       - "3306:3306"
