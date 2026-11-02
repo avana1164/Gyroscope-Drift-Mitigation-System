@@ -19,8 +19,7 @@ def parse_device_timestamp(value):
 
     try:
         if isinstance(value, (int, float)):
-            # Accept Unix seconds or milliseconds.
-            timestamp_seconds = value / 1000 if abs(value) >= 1e11 else value
+            timestamp_seconds = unix_timestamp_seconds(value)
             parsed = datetime.fromtimestamp(timestamp_seconds, tz=timezone.utc)
         elif isinstance(value, str):
             text_value = value.strip()
@@ -28,7 +27,7 @@ def parse_device_timestamp(value):
                 return None
             try:
                 timestamp_seconds = float(text_value)
-                timestamp_seconds = timestamp_seconds / 1000 if abs(timestamp_seconds) >= 1e11 else timestamp_seconds
+                timestamp_seconds = unix_timestamp_seconds(timestamp_seconds)
                 parsed = datetime.fromtimestamp(timestamp_seconds, tz=timezone.utc)
             except ValueError:
                 parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
@@ -39,6 +38,18 @@ def parse_device_timestamp(value):
         return parsed.astimezone(timezone.utc).replace(tzinfo=None)
     except (OverflowError, OSError, TypeError, ValueError):
         return None
+
+
+def unix_timestamp_seconds(value):
+    """Normalize Unix seconds, milliseconds, microseconds, or nanoseconds."""
+    magnitude = abs(value)
+    if magnitude >= 1e17:  # nanoseconds
+        return value / 1e9
+    if magnitude >= 1e14:  # microseconds
+        return value / 1e6
+    if magnitude >= 1e11:  # milliseconds
+        return value / 1e3
+    return value
 
 @app.route('/telemetry', methods=['POST'])
 def receive_telemetry():
@@ -52,12 +63,13 @@ def receive_telemetry():
     dt = current_time - last_timestamp if last_timestamp else 0.01
     last_timestamp = current_time
 
-    # Containers for batch processing
-    db_readings = []
+    # Pair calibrated accel/gyro samples that share the phone's sample time.
+    paired_readings = {}
     status = "NORMAL"
     
     # Core parsing loops to process nested Sensor Logger payloads
-    for item in data['payload']:
+    request_timestamp = data.get('timestamp', data.get('time'))
+    for item_index, item in enumerate(data['payload']):
         name = item.get('name', '')
         values = item.get('values', {})
         
@@ -65,11 +77,23 @@ def receive_telemetry():
         if not values or not isinstance(values, dict):
             continue
 
+        normalized_name = name.lower()
+        if normalized_name not in {"accelerometer", "gyroscope"}:
+            continue
+
         # Sensor Logger variants commonly put the sample time on each item;
         # accept a request-level time as a fallback. Missing times remain NULL.
-        device_timestamp = parse_device_timestamp(
-            item.get('timestamp', item.get('time', data.get('timestamp', data.get('time'))))
-        )
+        sample_time = item.get('time', item.get('timestamp', request_timestamp))
+        device_timestamp = parse_device_timestamp(sample_time)
+
+        # Use a unique key if the sender supplies no sample timestamp; do not
+        # accidentally combine unrelated readings that have no shared time.
+        sample_key = str(sample_time) if sample_time is not None else f"untimed-{item_index}"
+        reading = paired_readings.setdefault(sample_key, {
+            'device_timestamp': device_timestamp,
+            'accel_x': None, 'accel_y': None, 'accel_z': None,
+            'gyro_x': None, 'gyro_y': None, 'gyro_z': None,
+        })
             
         # Standard schema parsing
         x = values.get('x', 0.0)
@@ -77,21 +101,16 @@ def receive_telemetry():
         z = values.get('z', 0.0)
 
         # Allocate variables depending on device message tags
-        if "accel" in name.lower():
+        if normalized_name == "accelerometer":
             # Calculate orientation baseline from gravity vector
             accel_pitch = math.atan2(y, math.sqrt(x**2 + z**2 if (x**2 + z**2) > 0 else 1.0))
             accel_roll = math.atan2(-x, z if z != 0 else 1.0)
             current_pitch = 0.98 * current_pitch + 0.02 * accel_pitch
             current_roll = 0.98 * current_roll + 0.02 * accel_roll
             
-            # Queue structured dictionary for background database writer
-            db_readings.append({
-                'device_timestamp': device_timestamp,
-                'accel_x': x, 'accel_y': y, 'accel_z': z,
-                'gyro_x': 0.0, 'gyro_y': 0.0, 'gyro_z': 0.0
-            })
+            reading.update({'accel_x': x, 'accel_y': y, 'accel_z': z})
 
-        elif "gyro" in name.lower():
+        elif normalized_name == "gyroscope":
             # Calculate total rotational angular velocity magnitude
             gyro_magnitude = math.sqrt(x**2 + y**2 + z**2)
             current_pitch += x * dt
@@ -100,13 +119,10 @@ def receive_telemetry():
             if gyro_magnitude > ROTATION_THRESHOLD:
                 status = "CRITICAL: Excessive Rotation Speed"
             
-            db_readings.append({
-                'device_timestamp': device_timestamp,
-                'accel_x': 0.0, 'accel_y': 0.0, 'accel_z': 0.0,
-                'gyro_x': x, 'gyro_y': y, 'gyro_z': z
-            })
+            reading.update({'gyro_x': x, 'gyro_y': y, 'gyro_z': z})
 
-    # Asynchronously pipe buffered metrics to Docker MySQL container
+    # Save one row for each sample timestamp, with accel and gyro together.
+    db_readings = list(paired_readings.values())
     if db_readings:
         save_telemetry_batch(db_readings)
 
