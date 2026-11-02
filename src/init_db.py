@@ -21,7 +21,8 @@ def initialize_database():
         create_table_query = """
         CREATE TABLE IF NOT EXISTS telemetry (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            timestamp TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
+            device_timestamp DATETIME(6) NULL,
             accel_x FLOAT,
             accel_y FLOAT,
             accel_z FLOAT,
@@ -31,6 +32,13 @@ def initialize_database():
         );
         """
         cursor.execute(create_table_query)
+
+        # Add the device timestamp to databases created before this schema change.
+        cursor.execute("SHOW COLUMNS FROM telemetry LIKE 'device_timestamp'")
+        if cursor.fetchone() is None:
+            cursor.execute(
+                "ALTER TABLE telemetry ADD COLUMN device_timestamp DATETIME(6) NULL"
+            )
         print("Table 'telemetry' verified/created successfully.")
         
         cursor.close()

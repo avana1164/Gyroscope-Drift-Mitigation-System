@@ -1,7 +1,8 @@
 from flask import Flask, request, jsonify
 import time
 import math
-from database import save_telemetry_batch  # Imports your Docker insert logic
+from datetime import datetime, timezone
+from .database import save_telemetry_batch
 
 app = Flask(__name__)
 
@@ -9,6 +10,35 @@ current_pitch = 0.0
 current_roll = 0.0
 last_timestamp = None
 ROTATION_THRESHOLD = 3.0  # Radians per second threshold for errors
+
+
+def parse_device_timestamp(value):
+    """Convert an ISO-8601 or Unix timestamp from the phone to a naive UTC datetime."""
+    if value is None:
+        return None
+
+    try:
+        if isinstance(value, (int, float)):
+            # Accept Unix seconds or milliseconds.
+            timestamp_seconds = value / 1000 if abs(value) >= 1e11 else value
+            parsed = datetime.fromtimestamp(timestamp_seconds, tz=timezone.utc)
+        elif isinstance(value, str):
+            text_value = value.strip()
+            if not text_value:
+                return None
+            try:
+                timestamp_seconds = float(text_value)
+                timestamp_seconds = timestamp_seconds / 1000 if abs(timestamp_seconds) >= 1e11 else timestamp_seconds
+                parsed = datetime.fromtimestamp(timestamp_seconds, tz=timezone.utc)
+            except ValueError:
+                parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            return None
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    except (OverflowError, OSError, TypeError, ValueError):
+        return None
 
 @app.route('/telemetry', methods=['POST'])
 def receive_telemetry():
@@ -34,6 +64,12 @@ def receive_telemetry():
         # Guard clause for empty test vectors
         if not values or not isinstance(values, dict):
             continue
+
+        # Sensor Logger variants commonly put the sample time on each item;
+        # accept a request-level time as a fallback. Missing times remain NULL.
+        device_timestamp = parse_device_timestamp(
+            item.get('timestamp', item.get('time', data.get('timestamp', data.get('time'))))
+        )
             
         # Standard schema parsing
         x = values.get('x', 0.0)
@@ -50,6 +86,7 @@ def receive_telemetry():
             
             # Queue structured dictionary for background database writer
             db_readings.append({
+                'device_timestamp': device_timestamp,
                 'accel_x': x, 'accel_y': y, 'accel_z': z,
                 'gyro_x': 0.0, 'gyro_y': 0.0, 'gyro_z': 0.0
             })
@@ -64,6 +101,7 @@ def receive_telemetry():
                 status = "CRITICAL: Excessive Rotation Speed"
             
             db_readings.append({
+                'device_timestamp': device_timestamp,
                 'accel_x': 0.0, 'accel_y': 0.0, 'accel_z': 0.0,
                 'gyro_x': x, 'gyro_y': y, 'gyro_z': z
             })
