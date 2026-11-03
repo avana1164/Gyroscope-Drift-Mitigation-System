@@ -2,9 +2,10 @@
 
 import argparse
 from datetime import datetime, timezone
+from collections import deque
 
 from .database import fetch_telemetry_between
-from .model_inference import correct_spatial_drift
+from .model_inference import load_orientation_model, predict_orientation
 
 
 def parse_utc_datetime(value):
@@ -32,25 +33,46 @@ def main():
         print("No telemetry found in that device-time range.")
         return
 
+    loaded_model = load_orientation_model()
+    if loaded_model is None:
+        raise SystemExit("No trained checkpoint found. Run `python -m src.train_model` first.")
+    window_size = loaded_model[3]
+    window = deque(maxlen=window_size)
+    active_session = object()
+
     processed = 0
+    skipped = 0
     for row in rows:
+        if row["session_id"] != active_session:
+            window.clear()
+            active_session = row["session_id"]
+
         sensor_values = [
             row["accel_x"], row["accel_y"], row["accel_z"],
             row["gyro_x"], row["gyro_y"], row["gyro_z"],
         ]
         if any(value is None for value in sensor_values):
+            skipped += 1
             continue
 
         accel = [float(row[f"accel_{axis}"]) for axis in "xyz"]
         gyro = [float(row[f"gyro_{axis}"]) for axis in "xyz"]
-        prediction = correct_spatial_drift(accel, gyro)
+        window.append(accel + gyro)
+        if len(window) < window_size:
+            continue
+        prediction = predict_orientation(loaded_model, list(window))
         print(
             f"{row['device_timestamp'].isoformat()} | row {row['id']} | "
-            f"layer output: pitch={prediction[0]:.6f}, roll={prediction[1]:.6f}"
+            f"predicted quaternion (qx, qy, qz, qw)="
+            f"({prediction[0]:.6f}, {prediction[1]:.6f}, "
+            f"{prediction[2]:.6f}, {prediction[3]:.6f})"
         )
         processed += 1
 
-    print(f"Processed {processed} complete rows out of {len(rows)} fetched.")
+    print(
+        f"Produced {processed} predictions from {len(rows)} fetched rows; "
+        f"skipped {skipped} incomplete rows."
+    )
 
 
 if __name__ == "__main__":

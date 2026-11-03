@@ -23,22 +23,36 @@ def initialize_database():
             id INT AUTO_INCREMENT PRIMARY KEY,
             timestamp TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
             device_timestamp DATETIME(6) NULL,
+            session_id VARCHAR(64) NULL,
             accel_x FLOAT,
             accel_y FLOAT,
             accel_z FLOAT,
             gyro_x FLOAT,
             gyro_y FLOAT,
-            gyro_z FLOAT
+            gyro_z FLOAT,
+            orientation_qx FLOAT NULL,
+            orientation_qy FLOAT NULL,
+            orientation_qz FLOAT NULL,
+            orientation_qw FLOAT NULL
         );
         """
         cursor.execute(create_table_query)
 
-        # Add the device timestamp to databases created before this schema change.
-        cursor.execute("SHOW COLUMNS FROM telemetry LIKE 'device_timestamp'")
-        if cursor.fetchone() is None:
-            cursor.execute(
-                "ALTER TABLE telemetry ADD COLUMN device_timestamp DATETIME(6) NULL"
-            )
+        # Add columns to databases created with earlier versions of this schema.
+        migrations = {
+            "device_timestamp": "DATETIME(6) NULL",
+            "session_id": "VARCHAR(64) NULL",
+            "orientation_qx": "FLOAT NULL",
+            "orientation_qy": "FLOAT NULL",
+            "orientation_qz": "FLOAT NULL",
+            "orientation_qw": "FLOAT NULL",
+        }
+        for column, definition in migrations.items():
+            cursor.execute(f"SHOW COLUMNS FROM telemetry LIKE '{column}'")
+            if cursor.fetchone() is None:
+                cursor.execute(
+                    f"ALTER TABLE telemetry ADD COLUMN {column} {definition}"
+                )
         print("Table 'telemetry' verified/created successfully.")
         
         cursor.close()

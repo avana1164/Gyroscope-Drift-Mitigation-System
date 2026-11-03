@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 import time
 import math
+from collections import deque
 from datetime import datetime, timezone
 from .database import save_telemetry_batch
+from .model_inference import load_orientation_model, predict_orientation
 
 app = Flask(__name__)
 
@@ -10,6 +12,9 @@ current_pitch = 0.0
 current_roll = 0.0
 last_timestamp = None
 ROTATION_THRESHOLD = 3.0  # Radians per second threshold for errors
+loaded_model = load_orientation_model()
+model_window_size = loaded_model[3] if loaded_model else 32
+orientation_buffers = {}
 
 
 def parse_device_timestamp(value):
@@ -63,7 +68,7 @@ def receive_telemetry():
     dt = current_time - last_timestamp if last_timestamp else 0.01
     last_timestamp = current_time
 
-    # Pair calibrated accel/gyro samples that share the phone's sample time.
+    # Pair calibrated accel/gyro and the phone's orientation target by sample time.
     paired_readings = {}
     status = "NORMAL"
     
@@ -78,7 +83,7 @@ def receive_telemetry():
             continue
 
         normalized_name = name.lower()
-        if normalized_name not in {"accelerometer", "gyroscope"}:
+        if normalized_name not in {"accelerometer", "gyroscope", "orientation"}:
             continue
 
         # Sensor Logger variants commonly put the sample time on each item;
@@ -91,8 +96,11 @@ def receive_telemetry():
         sample_key = str(sample_time) if sample_time is not None else f"untimed-{item_index}"
         reading = paired_readings.setdefault(sample_key, {
             'device_timestamp': device_timestamp,
+            'session_id': data.get('sessionId'),
             'accel_x': None, 'accel_y': None, 'accel_z': None,
             'gyro_x': None, 'gyro_y': None, 'gyro_z': None,
+            'orientation_qx': None, 'orientation_qy': None,
+            'orientation_qz': None, 'orientation_qw': None,
         })
             
         # Standard schema parsing
@@ -121,17 +129,47 @@ def receive_telemetry():
             
             reading.update({'gyro_x': x, 'gyro_y': y, 'gyro_z': z})
 
-    # Save one row for each sample timestamp, with accel and gyro together.
-    db_readings = list(paired_readings.values())
+        elif normalized_name == "orientation":
+            reading.update({
+                'orientation_qx': values.get('qx'),
+                'orientation_qy': values.get('qy'),
+                'orientation_qz': values.get('qz'),
+                'orientation_qw': values.get('qw'),
+            })
+
+    # Save rows in sample order and update the in-memory sequence for inference.
+    db_readings = sorted(
+        paired_readings.values(),
+        key=lambda row: row['device_timestamp'] or datetime.min,
+    )
     if db_readings:
         save_telemetry_batch(db_readings)
+
+    model_prediction = None
+    model_status = "model_not_trained" if loaded_model is None else "warming_up"
+    if loaded_model is not None:
+        stream_key = (data.get('deviceId'), data.get('sessionId'))
+        sample_buffer = orientation_buffers.setdefault(
+            stream_key, deque(maxlen=model_window_size)
+        )
+        for reading in db_readings:
+            required = [reading[f'{sensor}_{axis}']
+                        for sensor in ('accel', 'gyro') for axis in 'xyz']
+            if any(value is None for value in required):
+                continue
+            sample_buffer.append([float(value) for value in required])
+            if len(sample_buffer) == model_window_size:
+                model_prediction = predict_orientation(loaded_model, list(sample_buffer))
+                model_status = "ready"
 
     # Print out a clean, real-time spatial dashboard on your screen
     print(f"🔮 Pitch: {math.degrees(current_pitch):.1f}° | Roll: {math.degrees(current_roll):.1f}° | Status: {status}")
 
     return jsonify({
         "status": status,
-        "orientation": {"pitch": current_pitch, "roll": current_roll}
+        "orientation": {"pitch": current_pitch, "roll": current_roll},
+        "model_orientation_quaternion": model_prediction,
+        "model_status": model_status,
     }), 200
 
 if __name__ == '__main__':
